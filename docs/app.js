@@ -1,5 +1,7 @@
 // Minimal single-file app for GitHub Pages
-const VIEWS = ['home','live','day','strategy'];
+// Hardcoded Twelve Data API key (quick dev convenience). WARNING: storing API keys in code is insecure.
+const DEFAULT_TD_KEY = '9c3209171a8c49429322e377f2611bb3';
+const VIEWS = ['home','live','day','strategy','portfolio'];
 const plotEl = document.getElementById('plot');
 const controls = document.getElementById('controls');
 const title = document.getElementById('title');
@@ -18,6 +20,7 @@ function showView(view){
   if(view==='live') renderLive();
   if(view==='day') renderDayChart();
   if(view==='strategy') renderStrategy();
+  if(view==='portfolio') renderPortfolio();
 }
 
 function renderHome(){
@@ -118,12 +121,68 @@ function renderStrategy(){
   };
 }
 
+function renderPortfolio(){
+  controls.innerHTML = `
+    <div class="row">
+      <label>Startdatum: <input type="date" id="pf_date"></label>
+      <label>Währung: <select id="pf_currency"><option value="usd">USD</option><option value="eur">EUR</option></select></label>
+      <label>Betrag (Fiat): <input type="number" id="pf_amount" value="1000"></label>
+      <button class="btn" id="runpf">Run</button>
+    </div>
+    <div id="pf_info" style="margin-top:8px"></div>
+  `;
+
+  document.getElementById('runpf').onclick = async ()=>{
+    const date = document.getElementById('pf_date').value;
+    const currency = document.getElementById('pf_currency').value || 'usd';
+    const amount = parseFloat(document.getElementById('pf_amount').value)||0;
+    if(!date) return alert('Bitte Startdatum wählen');
+    plotEl.innerHTML = '<div style="padding:20px">Lade historische Preise…</div>';
+
+    const fromTs = Math.floor(new Date(date+'T00:00:00Z').getTime()/1000);
+    const toTs = Math.floor(Date.now()/1000);
+    let prices = [];
+    try{
+      prices = await fetchPricesRange(fromTs, toTs, currency);
+    }catch(err){
+      console.error(err); alert('Fehler beim Laden der Preise: '+err.message); return;
+    }
+
+    if(!prices.length){ plotEl.innerHTML = '<div style="padding:20px">Keine Preisdaten gefunden</div>'; return; }
+    const daily = toDailyClose(prices);
+    if(!daily.length){ plotEl.innerHTML = '<div style="padding:20px">Keine Tagesdaten gefunden</div>'; return; }
+
+    const startPrice = daily[0][1];
+    const btcAmount = amount / startPrice;
+    const dates = daily.map(d=>new Date(d[0]));
+    const values = daily.map(d=>btcAmount * d[1]);
+
+    document.getElementById('pf_info').innerHTML = `<div>Startpreis: ${startPrice.toFixed(2)} ${currency.toUpperCase()} — BTC gekauft: ${btcAmount.toFixed(6)}</div>`;
+    plotPortfolio(dates, values, currency);
+  };
+}
+
+function plotPortfolio(dates, values, currency){
+  const trace = { x: dates, y: values, type:'scatter', mode:'lines+markers', name:'Portfolio Value' };
+  const layout = { title: `Portfolio Value (${currency.toUpperCase()})`, yaxis:{title:`Value (${currency.toUpperCase()})`} };
+  Plotly.newPlot(plotEl, [trace], layout, {responsive:true});
+}
+
 // Fetch prices from CoinGecko for given days ('max' or number)
 async function fetchPrices(days){
-  const url = `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=${days}`;
-  const res = await fetch(url);
+  // default to USD
+  const res = await fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=${days}`);
   const j = await res.json();
+  // j.prices = [[ms, price], ...]
   return j.prices.map(p=>[p[0], p[1]]);
+}
+
+// Fetch historical prices for a range (from,to in UNIX seconds) in specified currency
+async function fetchPricesRange(fromSec, toSec, vs_currency='usd'){
+  const res = await fetch(`https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range?vs_currency=${vs_currency}&from=${fromSec}&to=${toSec}`);
+  const j = await res.json();
+  // returns prices array [[ms, price], ...]
+  return (j.prices||[]).map(p=>[p[0], p[1]]);
 }
 
 async function fetchAllPrices(){
