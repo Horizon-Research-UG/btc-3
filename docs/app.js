@@ -44,14 +44,24 @@ function renderDayChart(){
     <div class="row">
       <label>Datum: <input type="date" id="daydate"></label>
       <label>Candle minutes: <select id="candle"><option>5</option><option>15</option><option selected>60</option><option>240</option><option>1440</option></select></label>
+      <label>TwelveData API Key: <input type="text" id="td_key" placeholder="optional"></label>
       <button class="btn" id="showday">Show Day</button>
     </div>`;
   document.getElementById('showday').onclick = async ()=>{
     const date = document.getElementById('daydate').value;
     const minutes = parseInt(document.getElementById('candle').value,10);
+    const tdkey = document.getElementById('td_key').value.trim();
     if(!date) return alert('Bitte Datum wählen');
     plotEl.innerHTML = '<div style="padding:20px">Lade Daten…</div>';
-    const points = await fetchAllPrices();
+    // Fetch either via TwelveData (if key provided) or CoinGecko
+    let points;
+    if(tdkey){
+      // Twelve Data: fetch intraday series for the given interval and extract the day
+      const interval = mapMinutesToTdInterval(minutes);
+      points = await fetchPricesTD('max', interval, tdkey);
+    } else {
+      points = await fetchAllPrices();
+    }
     const dayMs = new Date(date+'T00:00:00').getTime();
     const nextDayMs = dayMs + 24*3600*1000;
     const filtered = points.filter(p=>p[0]>=dayMs && p[0]<nextDayMs);
@@ -67,6 +77,7 @@ function renderStrategy(){
       <label>Zeitraum: <select id="period"><option value="30">1M</option><option value="90">3M</option><option value="365">1J</option><option value="1825">5J</option><option value="max" selected>Max</option></select></label>
       <label>Candle minutes: <select id="candle"><option>60</option><option>240</option><option>1440</option></select></label>
       <label>SMA auf Tagesbasis: <input type="checkbox" id="smaDaily" checked></label>
+      <label>TwelveData API Key: <input type="text" id="td_key" placeholder="optional"></label>
       <label>Startkapital: <input type="number" id="capital" value="404"></label>
       <button class="btn" id="runstr">Run Strategy</button>
     </div>`;
@@ -77,7 +88,14 @@ function renderStrategy(){
     const smaDaily = document.getElementById('smaDaily').checked;
     const capital = parseFloat(document.getElementById('capital').value)||404;
 
-    const points = await fetchPrices(period);
+    const tdkey = document.getElementById('td_key').value.trim();
+    let points;
+    if(tdkey){
+      const interval = mapMinutesToTdInterval(minutes);
+      points = await fetchPricesTD(period, interval, tdkey);
+    } else {
+      points = await fetchPrices(period);
+    }
 
     // Aggregate to selected candle resolution
     const ohlc = aggregateToOHLC(points, minutes);
@@ -169,6 +187,34 @@ function compute3DayStrategy(closes, sma, capital){
   // pad to length
   while(vals.length<closes.length) vals.push(vals[vals.length-1]);
   return vals;
+}
+
+// Map minutes to Twelve Data interval strings
+function mapMinutesToTdInterval(minutes){
+  if(minutes<=1) return '1min';
+  if(minutes<=5) return '5min';
+  if(minutes<=15) return '15min';
+  if(minutes<=30) return '30min';
+  if(minutes<=60) return '1h';
+  if(minutes<=240) return '4h';
+  return '1day';
+}
+
+// Fetch via Twelve Data time_series endpoint. days can be 'max' or number of days.
+async function fetchPricesTD(days, interval, apikey){
+  // Twelve Data expects symbol as BTC/USD
+  const symbol = 'BTC/USD';
+  // outputsize: request large amount to cover the requested period; TwelveData caps apply
+  const outputsize = 5000;
+  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=${outputsize}&format=JSON&apikey=${apikey}`;
+  const res = await fetch(url);
+  const j = await res.json();
+  if(j.status && j.status==='error'){
+    throw new Error('TwelveData error: '+(j.message||JSON.stringify(j)));
+  }
+  // j.values is array of {datetime, open, high, low, close, volume}
+  const arr = (j.values||[]).map(v=>[new Date(v.datetime).getTime(), parseFloat(v.close)]).reverse();
+  return arr;
 }
 
 function plotStrategyOHLC(daily, sma, strategy, dates){
