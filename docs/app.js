@@ -64,23 +64,48 @@ function renderDayChart(){
 function renderStrategy(){
   controls.innerHTML = `
     <div class="row">
-      <label>Startjahr: <input type="number" id="years" value="15" min="1" max="30"></label>
+      <label>Zeitraum: <select id="period"><option value="30">1M</option><option value="90">3M</option><option value="365">1J</option><option value="1825">5J</option><option value="max" selected>Max</option></select></label>
+      <label>Candle minutes: <select id="candle"><option>60</option><option>240</option><option>1440</option></select></label>
+      <label>SMA auf Tagesbasis: <input type="checkbox" id="smaDaily" checked></label>
       <label>Startkapital: <input type="number" id="capital" value="404"></label>
       <button class="btn" id="runstr">Run Strategy</button>
     </div>`;
   document.getElementById('runstr').onclick = async ()=>{
     plotEl.innerHTML = '<div style="padding:20px">Lade historische Daten…</div>';
-    const years = parseInt(document.getElementById('years').value,10)||15;
+    const period = document.getElementById('period').value;
+    const minutes = parseInt(document.getElementById('candle').value,10)||60;
+    const smaDaily = document.getElementById('smaDaily').checked;
     const capital = parseFloat(document.getElementById('capital').value)||404;
-    const points = await fetchAllPrices();
-    // Reduce to daily close -- last price per UTC day
-    const daily = toDailyClose(points);
-    const closes = daily.map(d=>d[1]);
-    const dates = daily.map(d=>new Date(d[0]));
-    const sma = computeSMA(closes,200);
-    const strategy = compute3DayStrategy(closes, sma, capital);
-    plotStrategyOHLC(daily, sma, strategy, dates);
+
+    const points = await fetchPrices(period);
+
+    // Aggregate to selected candle resolution
+    const ohlc = aggregateToOHLC(points, minutes);
+    const candleCloses = ohlc.map(o=>o.close);
+    const candleDates = ohlc.map(o=>new Date(o.ts));
+
+    let sma = null; let smaDates = null;
+    if(smaDaily){
+      const daily = toDailyClose(points);
+      const dailyCloses = daily.map(d=>d[1]);
+      sma = computeSMA(dailyCloses,200);
+      smaDates = daily.map(d=>new Date(d[0]));
+    } else {
+      sma = computeSMA(candleCloses,200);
+      smaDates = candleDates;
+    }
+
+    const strategy = compute3DayStrategy(candleCloses, sma, capital);
+    plotStrategyCandles(ohlc, sma, smaDates, strategy, candleDates);
   };
+}
+
+// Fetch prices from CoinGecko for given days ('max' or number)
+async function fetchPrices(days){
+  const url = `https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=${days}`;
+  const res = await fetch(url);
+  const j = await res.json();
+  return j.prices.map(p=>[p[0], p[1]]);
 }
 
 async function fetchAllPrices(){
@@ -153,4 +178,12 @@ function plotStrategyOHLC(daily, sma, strategy, dates){
   const stratTrace = { x, y: strategy, type:'scatter', mode:'lines', name:'Strategy Value', yaxis:'y2', line:{color:'green'} };
   const layout = { title:'BTC SMA200 3-Day Strategy', yaxis:{title:'Price (USD)'}, yaxis2:{overlaying:'y',side:'right',title:'Strategy Value'} };
   Plotly.newPlot(plotEl, [priceTrace, smaTrace, stratTrace], layout, {responsive:true});
+}
+
+function plotStrategyCandles(ohlc, sma, smaDates, strategy, candleDates){
+  const candleTrace = { x: candleDates, open: ohlc.map(o=>o.open), high: ohlc.map(o=>o.high), low: ohlc.map(o=>o.low), close: ohlc.map(o=>o.close), type:'candlestick', name:'BTC' };
+  const smaTrace = { x: smaDates, y: sma, type:'scatter', mode:'lines', name:'SMA200', line:{color:'red'} };
+  const stratTrace = { x: candleDates, y: strategy, type:'scatter', mode:'lines', name:'Strategy Value', yaxis:'y2', line:{color:'green'} };
+  const layout = { title:'BTC SMA200 3-Day Strategy', yaxis:{title:'Price (USD)'}, yaxis2:{overlaying:'y',side:'right',title:'Strategy Value'}, xaxis:{rangeslider:{visible:false}} };
+  Plotly.newPlot(plotEl, [candleTrace, smaTrace, stratTrace], layout, {responsive:true});
 }
