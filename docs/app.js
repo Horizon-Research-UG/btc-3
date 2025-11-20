@@ -53,7 +53,8 @@ function renderDayChart(){
   document.getElementById('showday').onclick = async ()=>{
     const date = document.getElementById('daydate').value;
     const minutes = parseInt(document.getElementById('candle').value,10);
-    const tdkey = document.getElementById('td_key').value.trim();
+    let tdkey = document.getElementById('td_key').value.trim();
+    if(!tdkey) tdkey = DEFAULT_TD_KEY;
     if(!date) return alert('Bitte Datum wählen');
     plotEl.innerHTML = '<div style="padding:20px">Lade Daten…</div>';
     // Fetch either via TwelveData (if key provided) or CoinGecko
@@ -91,7 +92,8 @@ function renderStrategy(){
     const smaDaily = document.getElementById('smaDaily').checked;
     const capital = parseFloat(document.getElementById('capital').value)||404;
 
-    const tdkey = document.getElementById('td_key').value.trim();
+    let tdkey = document.getElementById('td_key').value.trim();
+    if(!tdkey) tdkey = DEFAULT_TD_KEY;
     let points;
     if(tdkey){
       const interval = mapMinutesToTdInterval(minutes);
@@ -207,7 +209,7 @@ function aggregateToOHLC(points, minutes){
 function plotOHLC(ohlc){
   const x = ohlc.map(o=>new Date(o.ts));
   const trace = { x, open: ohlc.map(o=>o.open), high: ohlc.map(o=>o.high), low: ohlc.map(o=>o.low), close: ohlc.map(o=>o.close), type:'candlestick', name:'BTC' };
-  const layout={margin:{t:30}};
+  const layout={margin:{t:30}, xaxis:{tickformat:'%Y-%m-%d', tickangle:-45}};
   Plotly.newPlot(plotEl, [trace], layout, {responsive:true});
 }
 
@@ -281,7 +283,7 @@ function plotStrategyOHLC(daily, sma, strategy, dates){
   const priceTrace = { x, y: daily.map(d=>d[1]), type:'scatter', mode:'lines', name:'Close' };
   const smaTrace = { x, y: sma, type:'scatter', mode:'lines', name:'SMA200', line:{color:'red'} };
   const stratTrace = { x, y: strategy, type:'scatter', mode:'lines', name:'Strategy Value', yaxis:'y2', line:{color:'green'} };
-  const layout = { title:'BTC SMA200 3-Day Strategy', yaxis:{title:'Price (USD)'}, yaxis2:{overlaying:'y',side:'right',title:'Strategy Value'} };
+  const layout = { title:'BTC SMA200 3-Day Strategy', yaxis:{title:'Price (USD)'}, yaxis2:{overlaying:'y',side:'right',title:'Strategy Value'}, xaxis:{tickformat:'%Y-%m-%d', tickangle:-45} };
   Plotly.newPlot(plotEl, [priceTrace, smaTrace, stratTrace], layout, {responsive:true});
 }
 
@@ -289,6 +291,6 @@ function plotStrategyCandles(ohlc, sma, smaDates, strategy, candleDates){
   const candleTrace = { x: candleDates, open: ohlc.map(o=>o.open), high: ohlc.map(o=>o.high), low: ohlc.map(o=>o.low), close: ohlc.map(o=>o.close), type:'candlestick', name:'BTC' };
   const smaTrace = { x: smaDates, y: sma, type:'scatter', mode:'lines', name:'SMA200', line:{color:'red'} };
   const stratTrace = { x: candleDates, y: strategy, type:'scatter', mode:'lines', name:'Strategy Value', yaxis:'y2', line:{color:'green'} };
-  const layout = { title:'BTC SMA200 3-Day Strategy', yaxis:{title:'Price (USD)'}, yaxis2:{overlaying:'y',side:'right',title:'Strategy Value'}, xaxis:{rangeslider:{visible:false}} };
+  const layout = { title:'BTC SMA200 3-Day Strategy', yaxis:{title:'Price (USD)'}, yaxis2:{overlaying:'y',side:'right',title:'Strategy Value'}, xaxis:{rangeslider:{visible:false}, tickformat:'%Y-%m-%d', tickangle:-45} };
   Plotly.newPlot(plotEl, [candleTrace, smaTrace, stratTrace], layout, {responsive:true});
 }
